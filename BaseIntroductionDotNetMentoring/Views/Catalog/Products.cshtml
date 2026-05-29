@@ -1,0 +1,52 @@
+@model IEnumerable<BaseIntroductionDotNetMentoring.Models.Product>
+
+@{
+    ViewData["Title"] = "Products";
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="card-title">Products</h1>
+            <a asp-action="Create" class="btn btn-success">New Product</a>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped">
+    <thead>
+        <tr>
+            <th>ProductID</th>
+            <th>ProductName</th>
+            <th>Supplier</th>
+            <th>Category</th>
+            <th>QuantityPerUnit</th>
+            <th>UnitPrice</th>
+            <th>UnitsInStock</th>
+            <th>UnitsOnOrder</th>
+            <th>ReorderLevel</th>
+            <th>Discontinued</th>
+        </tr>
+    </thead>
+    <tbody>
+@foreach(var p in Model)
+{
+    <tr>
+        <td>@p.ProductId</td>
+        <td>@p.ProductName</td>
+        <td>@p.Supplier?.CompanyName</td>
+        <td>@p.Category?.CategoryName</td>
+        <td>@p.QuantityPerUnit</td>
+        <td>@p.UnitPrice</td>
+        <td>@p.UnitsInStock</td>
+        <td>@p.UnitsOnOrder</td>
+        <td>@p.ReorderLevel</td>
+        <td>@p.Discontinued</td>
+        <td>
+            <a asp-action="Edit" asp-route-id="@p.ProductId" class="btn btn-sm btn-primary">Edit</a>
+        </td>
+    </tr>
+}
+            </table>
+        </div>
+    </div>
+</div>

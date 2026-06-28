@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using BaseIntroductionDotNetMentoring.Helpers;
+using Microsoft.Extensions.Logging;
 
 namespace BaseIntroductionDotNetMentoring.Controllers
 {
@@ -10,11 +11,13 @@ namespace BaseIntroductionDotNetMentoring.Controllers
     {
         private readonly NorthwindContext _db;
         private readonly ProductSettings _settings;
+        private readonly ILogger<CatalogController> _logger;
 
-        public CatalogController(NorthwindContext db, IOptions<ProductSettings> settings)
+        public CatalogController(NorthwindContext db, IOptions<ProductSettings> settings, ILogger<CatalogController> logger)
         {
             _db = db;
             _settings = settings.Value;
+            _logger = logger;
         }
 
         public async Task<IActionResult> Categories()
@@ -22,6 +25,7 @@ namespace BaseIntroductionDotNetMentoring.Controllers
             var categories = await _db.Categories
                 .Select(c => new { c.CategoryID, c.CategoryName, c.Description })
                 .ToListAsync();
+            _logger.LogInformation("Retrieved {Count} categories", categories.Count);
             return View(categories);
         }
 
@@ -34,19 +38,17 @@ namespace BaseIntroductionDotNetMentoring.Controllers
                 .AsQueryable();
 
             if (_settings.MaxProducts > 0)
-            {
                 query = query.Take(_settings.MaxProducts);
-            }
 
             var products = await query.ToListAsync();
+            _logger.LogInformation("Retrieved {Count} products (MaxProducts={Max})", products.Count, _settings.MaxProducts);
             return View(products);
         }
 
         // GET: /Catalog/Create
         public async Task<IActionResult> Create()
         {
-            ViewBag.Categories = await _db.Categories.OrderBy(c => c.CategoryName).ToListAsync();
-            ViewBag.Suppliers = await _db.Suppliers.OrderBy(s => s.CompanyName).ToListAsync();
+            await LoadDropdownsAsync();
             return View(new ProductInput());
         }
 
@@ -55,45 +57,20 @@ namespace BaseIntroductionDotNetMentoring.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(ProductInput input)
         {
-            ViewBag.Categories = await _db.Categories.OrderBy(c => c.CategoryName).ToListAsync();
-            ViewBag.Suppliers = await _db.Suppliers.OrderBy(s => s.CompanyName).ToListAsync();
-
-            // Server-side validation rules
-            if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Length < 3)
-            {
-                ModelState.AddModelError(nameof(input.Name), "Name is required and must be at least 3 characters.");
-            }
-            if (input.Price <= 0)
-            {
-                ModelState.AddModelError(nameof(input.Price), "Price must be greater than zero.");
-            }
-            if (input.StockQuantity < 0)
-            {
-                ModelState.AddModelError(nameof(input.StockQuantity), "Stock must be 0 or greater.");
-            }
-            if (input.CategoryId == 0)
-            {
-                ModelState.AddModelError(nameof(input.CategoryId), "Category is required.");
-            }
+            ValidateCategoryId(input);
 
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Create validation failed with {ErrorCount} errors", ModelState.ErrorCount);
+                await LoadDropdownsAsync();
                 return View(input);
             }
 
-            var product = new Models.Product
-            {
-                ProductName = input.Name!,
-                UnitPrice = input.Price,
-                UnitsInStock = (short?)input.StockQuantity,
-                CategoryId = input.CategoryId == 0 ? null : input.CategoryId,
-                SupplierId = input.SupplierId,
-                QuantityPerUnit = null,
-                Discontinued = false
-            };
-
+            var product = new Models.Product { Discontinued = false };
+            ApplyInput(product, input);
             _db.Products.Add(product);
             await _db.SaveChangesAsync();
+            _logger.LogInformation("Product created: {Name} (Id={Id})", product.ProductName, product.ProductId);
             return RedirectToAction(nameof(Products));
         }
 
@@ -101,12 +78,14 @@ namespace BaseIntroductionDotNetMentoring.Controllers
         public async Task<IActionResult> Edit(int id)
         {
             var p = await _db.Products.FindAsync(id);
-            if (p == null) return NotFound();
+            if (p == null)
+            {
+                _logger.LogWarning("Product {Id} not found for edit", id);
+                return NotFound();
+            }
 
-            ViewBag.Categories = await _db.Categories.OrderBy(c => c.CategoryName).ToListAsync();
-            ViewBag.Suppliers = await _db.Suppliers.OrderBy(s => s.CompanyName).ToListAsync();
-
-            var input = new ProductInput
+            await LoadDropdownsAsync();
+            return View(new ProductInput
             {
                 Id = p.ProductId,
                 Name = p.ProductName,
@@ -114,8 +93,7 @@ namespace BaseIntroductionDotNetMentoring.Controllers
                 StockQuantity = p.UnitsInStock ?? 0,
                 CategoryId = p.CategoryId ?? 0,
                 SupplierId = p.SupplierId
-            };
-            return View(input);
+            });
         }
 
         // POST: /Catalog/Edit/5
@@ -123,45 +101,56 @@ namespace BaseIntroductionDotNetMentoring.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, ProductInput input)
         {
-            if (id != input.Id) return BadRequest();
+            if (id != input.Id)
+            {
+                _logger.LogError("ID mismatch: route={RouteId}, input={InputId}", id, input.Id);
+                return BadRequest();
+            }
 
-            ViewBag.Categories = await _db.Categories.OrderBy(c => c.CategoryName).ToListAsync();
-            ViewBag.Suppliers = await _db.Suppliers.OrderBy(s => s.CompanyName).ToListAsync();
-
-            if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Length < 3)
-            {
-                ModelState.AddModelError(nameof(input.Name), "Name is required and must be at least 3 characters.");
-            }
-            if (input.Price <= 0)
-            {
-                ModelState.AddModelError(nameof(input.Price), "Price must be greater than zero.");
-            }
-            if (input.StockQuantity < 0)
-            {
-                ModelState.AddModelError(nameof(input.StockQuantity), "Stock must be 0 or greater.");
-            }
-            if (input.CategoryId == 0)
-            {
-                ModelState.AddModelError(nameof(input.CategoryId), "Category is required.");
-            }
+            ValidateCategoryId(input);
 
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Edit validation failed with {ErrorCount} errors for Product {Id}", ModelState.ErrorCount, id);
+                await LoadDropdownsAsync();
                 return View(input);
             }
 
             var product = await _db.Products.FindAsync(id);
-            if (product == null) return NotFound();
+            if (product == null)
+            {
+                _logger.LogError("Product {Id} not found for update", id);
+                return NotFound();
+            }
 
+            ApplyInput(product, input);
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("Product updated: {Name} (Id={Id})", product.ProductName, product.ProductId);
+            return RedirectToAction(nameof(Products));
+        }
+
+        private async Task LoadDropdownsAsync()
+        {
+            var categoriesTask = _db.Categories.OrderBy(c => c.CategoryName).ToListAsync();
+            var suppliersTask = _db.Suppliers.OrderBy(s => s.CompanyName).ToListAsync();
+            await Task.WhenAll(categoriesTask, suppliersTask);
+            ViewBag.Categories = categoriesTask.Result;
+            ViewBag.Suppliers = suppliersTask.Result;
+        }
+
+        private void ValidateCategoryId(ProductInput input)
+        {
+            if (input.CategoryId == 0)
+                ModelState.AddModelError(nameof(input.CategoryId), "Category is required.");
+        }
+
+        private static void ApplyInput(Models.Product product, ProductInput input)
+        {
             product.ProductName = input.Name!;
             product.UnitPrice = input.Price;
             product.UnitsInStock = (short?)input.StockQuantity;
-            product.CategoryId = input.CategoryId == 0 ? null : input.CategoryId;
+            product.CategoryId = input.CategoryId;
             product.SupplierId = input.SupplierId;
-
-            _db.Products.Update(product);
-            await _db.SaveChangesAsync();
-            return RedirectToAction(nameof(Products));
         }
     }
 }

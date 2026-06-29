@@ -26,5 +26,14 @@ namespace BaseIntroductionDotNetMentoring.Helpers
 
         [StringLength(200, ErrorMessage = "Supplier name max 200 characters")]
         public string? SupplierName { get; set; }
+
+        public static void ApplyInput(Models.Product product, ProductInput input)
+        {
+            product.ProductName = input.Name!;
+            product.UnitPrice = input.Price;
+            product.UnitsInStock = (short?)input.StockQuantity;
+            product.CategoryId = input.CategoryId;
+            product.SupplierId = input.SupplierId;
+        }
     }
 }

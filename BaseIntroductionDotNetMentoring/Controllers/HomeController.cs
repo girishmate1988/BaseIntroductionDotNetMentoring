@@ -16,12 +16,15 @@ namespace BaseIntroductionDotNetMentoring.Controllers
             _logger = logger;
         }
 
+
+        [ValidateAntiForgeryToken]
         public IActionResult Index()
         {
             _logger.LogInformation("Home Index page accessed at {DateTime}", DateTime.UtcNow);
             return View();
         }
 
+        [ValidateAntiForgeryToken]
         public IActionResult Privacy()
         {
             _logger.LogInformation("Privacy page accessed at {DateTime}", DateTime.UtcNow);

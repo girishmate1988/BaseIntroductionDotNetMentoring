@@ -1,9 +1,11 @@
+using AspNetCoreGeneratedDocument;
 using BaseIntroductionDotNetMentoring.Data;
+using BaseIntroductionDotNetMentoring.Helpers;
+using BaseIntroductionDotNetMentoring.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using BaseIntroductionDotNetMentoring.Helpers;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace BaseIntroductionDotNetMentoring.Controllers
 {
@@ -12,14 +14,19 @@ namespace BaseIntroductionDotNetMentoring.Controllers
         private readonly NorthwindContext _db;
         private readonly ProductSettings _settings;
         private readonly ILogger<CatalogController> _logger;
+        protected CategoryActivities _categories;
 
         public CatalogController(NorthwindContext db, IOptions<ProductSettings> settings, ILogger<CatalogController> logger)
         {
             _db = db;
             _settings = settings.Value;
             _logger = logger;
+            _categories = new CategoryActivities(_db);
         }
 
+
+        [HttpGet]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Categories()
         {
             var categories = await _db.Categories
@@ -29,6 +36,8 @@ namespace BaseIntroductionDotNetMentoring.Controllers
             return View(categories);
         }
 
+        [HttpGet]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Products()
         {
             var query = _db.Products
@@ -44,11 +53,12 @@ namespace BaseIntroductionDotNetMentoring.Controllers
             _logger.LogInformation("Retrieved {Count} products (MaxProducts={Max})", products.Count, _settings.MaxProducts);
             return View(products);
         }
-
-        // GET: /Catalog/Create
+        
+        // GET: /Catalog/Create        
         public async Task<IActionResult> Create()
         {
             await LoadDropdownsAsync();
+            _logger.LogInformation("Dropdowns are loaded for suppliers & categories");
             return View(new ProductInput());
         }
 
@@ -57,7 +67,10 @@ namespace BaseIntroductionDotNetMentoring.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(ProductInput input)
         {
-            ValidateCategoryId(input);
+            _logger.LogInformation("Validating categories");
+            int validateCategoryResult = _categories.ValidateCategoryId(input);
+            if(validateCategoryResult == 0)
+                ModelState.AddModelError(nameof(input.CategoryId), "Category is required.");
 
             if (!ModelState.IsValid)
             {
@@ -67,7 +80,7 @@ namespace BaseIntroductionDotNetMentoring.Controllers
             }
 
             var product = new Models.Product { Discontinued = false };
-            ApplyInput(product, input);
+            ProductInput.ApplyInput(product, input);
             _db.Products.Add(product);
             await _db.SaveChangesAsync();
             _logger.LogInformation("Product created: {Name} (Id={Id})", product.ProductName, product.ProductId);
@@ -75,6 +88,7 @@ namespace BaseIntroductionDotNetMentoring.Controllers
         }
 
         // GET: /Catalog/Edit/5
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id)
         {
             var p = await _db.Products.FindAsync(id);
@@ -107,7 +121,12 @@ namespace BaseIntroductionDotNetMentoring.Controllers
                 return BadRequest();
             }
 
-            ValidateCategoryId(input);
+            int validateCategoryResult = _categories.ValidateCategoryId(input);
+            if (validateCategoryResult == 0)
+            {
+                ModelState.AddModelError(nameof(input.CategoryId), "Category is required.");
+                return BadRequest();
+            }
 
             if (!ModelState.IsValid)
             {
@@ -123,7 +142,8 @@ namespace BaseIntroductionDotNetMentoring.Controllers
                 return NotFound();
             }
 
-            ApplyInput(product, input);
+            _logger.LogInformation("Validating products");
+            ProductInput.ApplyInput(product, input);
             await _db.SaveChangesAsync();
             _logger.LogInformation("Product updated: {Name} (Id={Id})", product.ProductName, product.ProductId);
             return RedirectToAction(nameof(Products));
@@ -136,21 +156,6 @@ namespace BaseIntroductionDotNetMentoring.Controllers
             await Task.WhenAll(categoriesTask, suppliersTask);
             ViewBag.Categories = categoriesTask.Result;
             ViewBag.Suppliers = suppliersTask.Result;
-        }
-
-        private void ValidateCategoryId(ProductInput input)
-        {
-            if (input.CategoryId == 0)
-                ModelState.AddModelError(nameof(input.CategoryId), "Category is required.");
-        }
-
-        private static void ApplyInput(Models.Product product, ProductInput input)
-        {
-            product.ProductName = input.Name!;
-            product.UnitPrice = input.Price;
-            product.UnitsInStock = (short?)input.StockQuantity;
-            product.CategoryId = input.CategoryId;
-            product.SupplierId = input.SupplierId;
         }
     }
 }
